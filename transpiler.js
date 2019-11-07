@@ -4,7 +4,7 @@ const transformer = require('./nunjucks/src/transformer')
 const nodes = require('./nunjucks/src/nodes')
 
 const fs = require('fs')
-
+const divider = '\n\n\n------------\n\n\n'
 
 const inputStr = fs.readFileSync(process.argv[2], 'utf8')
 
@@ -45,7 +45,27 @@ function printNodes(node, variablePrefix, variablePostfix) {
     })
   } else if (node instanceof nodes.If || node instanceof nodes.InlineIf) {
     if (node.cond.left) {
-      output.push('<!-- multiple conditions -->')
+      output.push('@if((')
+      output.push(node.cond.left.target.value)
+      output.push(' \\ "')
+      output.push(node.cond.left.val.value)
+      output.push('").toOption.isDefined')
+      if (node.cond instanceof nodes.Or) {
+        output.push(' || ')
+      }
+      output.push('(')
+      output.push(node.cond.right.target.value)
+      output.push(' \\ "')
+      output.push(node.cond.right.val.value)
+      output.push('").toOption.isDefined')
+      output.push('){')
+      output.push(printNodes(node.body, variablePrefix, variablePostfix))
+      output.push('}')
+      if (node.else_) {
+        output.push('else {')
+        output.push(printNodes(node.else_, variablePrefix, variablePostfix))
+        output.push('}')
+      }
     } else {
       output.push('@if((')
       output.push(node.cond.target.value)
@@ -80,6 +100,13 @@ function printNodes(node, variablePrefix, variablePostfix) {
     } else {
       output.push(`<!-- NO HANDLER FOR FILTER [${filterName}] -->`)
     }
+  } else if (node instanceof nodes.Set) {
+    output.push('@')
+    output.push(node.targets[0].value)
+    output.push(' = ')
+    output.push('@{')
+    output.push(printNodes(node.value, '', '').replace(/@/g,''))
+    output.push('}')
   } else {
     output.push(`[unrecognised ${node.typename}]`)
   }
