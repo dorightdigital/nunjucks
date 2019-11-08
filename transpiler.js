@@ -15,7 +15,28 @@ const filters = {
     const out = []
     out.push(printNodes(node.args, '@Html(', ')'))
     return out.join('')
+  },
+  // trim: node => {
+  //   const out = []
+  //   out.push(printNodes(node.args))
+  //   return out.join('')
+  // }
+}
+
+const getNestedTargets = (container) => {
+  let out = []
+  if (!container.target.value) {
+    out = out.concat(getNestedTargets(container.target))
+  } else {
+    out = out.concat([container.target.value])
   }
+  out = out.concat([container.val.value])
+  return out
+}
+
+const getNestedVariable = (container) => {
+  const arr = getNestedTargets(container)
+  return [arr[0] || ''].concat([].concat(arr).splice(1).map(part => `"${part}"`)).join(' \\ ')
 }
 
 function printNodes(node, variablePrefix, variablePostfix) {
@@ -31,10 +52,8 @@ function printNodes(node, variablePrefix, variablePostfix) {
     output.push(varPrefix)
     if (node.target) {
       output.push('(')
-      output.push(node.target.value)
-      output.push(' \\ "')
-      output.push(node.val.value)
-      output.push('").as[String]')
+      output.push(getNestedVariable(node))
+      output.push(').as[String]')
     } else {
       output.push(node.value)
     }
@@ -66,12 +85,10 @@ function printNodes(node, variablePrefix, variablePostfix) {
         output.push(printNodes(node.else_, variablePrefix, variablePostfix))
         output.push('}')
       }
-    } else {
+    } else if (node.cond.target) {
       output.push('@if((')
-      output.push(node.cond.target.value)
-      output.push(' \\ "')
-      output.push(node.cond.val.value)
-      output.push('").toOption.isDefined) {')
+      output.push(getNestedVariable(node.cond))
+      output.push(').toOption.isDefined) {')
       output.push(printNodes(node.body, variablePrefix, variablePostfix))
       output.push('}')
       if (node.else_) {
@@ -79,8 +96,14 @@ function printNodes(node, variablePrefix, variablePostfix) {
         output.push(printNodes(node.else_, variablePrefix, variablePostfix))
         output.push('}')
       }
+    } else {
+      output.push('@if(')
+      output.push(node.cond.value)
+      output.push('.toOption.isDefined) {')
+      output.push(printNodes(node.body, variablePrefix, variablePostfix))
+      output.push('}')
     }
-  } else if (node instanceof nodes.For) {
+  } else if (node instanceof nodes.For && node.name.children) {
     output.push('@for((')
     output.push(node.name.children[0].value)
     output.push(', ')
@@ -92,6 +115,16 @@ function printNodes(node, variablePrefix, variablePostfix) {
     output.push('").as[Map[String, String]]){')
     output.push(printNodes(node.body, variablePrefix, variablePostfix))
     output.push('})')
+  } else if (node instanceof nodes.For) {
+    output.push('@for((')
+    output.push(node.name.value)
+    output.push(') <- ((')
+    output.push(node.arr.target.value)
+    output.push(') \\ "')
+    output.push(node.arr.val.value)
+    output.push('").as[List[String]]){')
+    output.push(printNodes(node.body, variablePrefix, variablePostfix))
+    output.push('})')
   } else if (node instanceof nodes.Filter) {
     const filterName = node.name.value
     const filterHandler = filters[filterName]
@@ -100,12 +133,20 @@ function printNodes(node, variablePrefix, variablePostfix) {
     } else {
       output.push(`<!-- NO HANDLER FOR FILTER [${filterName}] -->`)
     }
-  } else if (node instanceof nodes.Set) {
+  } else if (node instanceof nodes.Set && node.targets) {
     output.push('@')
     output.push(node.targets[0].value)
     output.push(' = ')
     output.push('@{')
     output.push(printNodes(node.value, '', '').replace(/@/g,''))
+    output.push('}')
+  } else if (node instanceof nodes.Macro) {
+    output.push('@')
+    output.push(node.name.value)
+    output.push('(')
+    output.push(node.args.children.map(child => child.value).join(', '))
+    output.push(') {')
+    output.push(printNodes(node.body, variablePrefix, variablePostfix))
     output.push('}')
   } else {
     output.push(`[unrecognised ${node.typename}]`)
